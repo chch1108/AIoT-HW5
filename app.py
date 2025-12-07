@@ -38,6 +38,9 @@ def get_genai_api_key() -> Optional[str]:
     return os.environ.get("GENAI_API_KEY")
 
 
+GEMINI_MODEL_NAME = "gemini-1.5-flash-latest"
+
+
 @st.cache_resource(show_spinner=False)
 def get_gemini_model():
     api_key = get_genai_api_key()
@@ -45,7 +48,7 @@ def get_gemini_model():
         return None
     try:
         genai.configure(api_key=api_key)
-        return genai.GenerativeModel("gemini-1.5-flash")
+        return genai.GenerativeModel(GEMINI_MODEL_NAME)
     except Exception as exc:  # pragma: no cover - runtime warning
         st.sidebar.warning(f"Gemini 初始化失敗：{exc}")
         return None
