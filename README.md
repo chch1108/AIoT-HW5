@@ -29,7 +29,7 @@ streamlit run app.py
 
 ### Gemini 雙重檢查（選用）
 
-1. 於本機環境變數或 `.streamlit/secrets.toml` 放入 `GENAI_API_KEY="你的金鑰"`（Google AI Studio 取得）。
+1. 於本機環境變數或 `.streamlit/secrets.toml` 放入 `GENAI_API_KEY="你的金鑰"`（或 `GOOGLE_API_KEY`，於 Google AI Studio 取得）。
 2. 重新啟動 Streamlit，即會在單次偵測結果下方自動呼叫 Gemini 分析，並以 JSON 回傳第二組信心分數。
 
 ## File Overview

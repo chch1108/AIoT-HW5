@@ -33,12 +33,16 @@ def get_detector() -> HeuristicAIHumanDetector:
 
 
 def get_genai_api_key() -> Optional[str]:
-    if "GENAI_API_KEY" in st.secrets:
-        return st.secrets["GENAI_API_KEY"]
-    return os.environ.get("GENAI_API_KEY")
+    for key in ("GENAI_API_KEY", "GOOGLE_API_KEY"):
+        if key in st.secrets:
+            return st.secrets[key]
+        value = os.environ.get(key)
+        if value:
+            return value
+    return None
 
 
-GEMINI_MODEL_NAME = "gemini-1.5-flash-latest"
+GEMINI_MODEL_NAME = "gemini-2.5-flash"
 
 
 @st.cache_resource(show_spinner=False)
