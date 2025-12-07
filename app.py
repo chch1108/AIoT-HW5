@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 import io
-from typing import List
+import json
+import os
+from typing import Dict, List, Optional
 
 import pandas as pd
 import streamlit as st
+
+try:
+    import google.generativeai as genai
+except ImportError:  # pragma: no cover
+    genai = None
 
 try:  # Allow running as `streamlit run HW5/app.py` or `python -m HW5.app`.
     from .detector import HeuristicAIHumanDetector
@@ -17,9 +24,31 @@ except ImportError:  # pragma: no cover
 st.set_page_config(page_title="AI vs Human Detector", layout="wide")
 
 
+# Caches -----------------------------------------------------------------------
+
+
 @st.cache_resource
 def get_detector() -> HeuristicAIHumanDetector:
     return HeuristicAIHumanDetector()
+
+
+def get_genai_api_key() -> Optional[str]:
+    if "GENAI_API_KEY" in st.secrets:
+        return st.secrets["GENAI_API_KEY"]
+    return os.environ.get("GENAI_API_KEY")
+
+
+@st.cache_resource(show_spinner=False)
+def get_gemini_model():
+    api_key = get_genai_api_key()
+    if not api_key or genai is None:
+        return None
+    try:
+        genai.configure(api_key=api_key)
+        return genai.GenerativeModel("gemini-1.5-flash")
+    except Exception as exc:  # pragma: no cover - runtime warning
+        st.sidebar.warning(f"Gemini 初始化失敗：{exc}")
+        return None
 
 
 def main() -> None:
@@ -27,9 +56,10 @@ def main() -> None:
     st.caption("輸入文本或上傳批次檔案，使用輕量 stylometric 特徵估算 AI/Human 機率。")
 
     detector = get_detector()
+    gemini_model = get_gemini_model()
     render_sidebar()
 
-    single_result = render_single_detection(detector)
+    single_result = render_single_detection(detector, gemini_model)
     st.divider()
     render_batch_detection(detector)
 
@@ -48,6 +78,9 @@ def render_sidebar() -> None:
 > 提醒：本偵測器為 heuristics 示範，不代表絕對真實。
 """
     )
+    if not get_genai_api_key():
+        st.sidebar.info("於 Streamlit secrets 設定 GENAI_API_KEY 可啟用 Gemini 雙重檢查。")
+
     st.sidebar.subheader("特徵說明")
     st.sidebar.write(
         "- **Complexity**: 句長與字長的綜合指標。\n"
@@ -58,7 +91,7 @@ def render_sidebar() -> None:
     )
 
 
-def render_single_detection(detector: HeuristicAIHumanDetector):
+def render_single_detection(detector: HeuristicAIHumanDetector, gemini_model=None):
     st.subheader("單次偵測")
     st.write("貼上文字後按下按鈕即可取得機率與特徵解讀。")
 
@@ -102,6 +135,8 @@ def render_single_detection(detector: HeuristicAIHumanDetector):
     st.markdown("**特徵觀察**")
     for note in explanations:
         st.write(f"- {note}")
+
+    render_gemini_section(gemini_model, text)
 
     return result
 
@@ -178,6 +213,75 @@ def parse_uploaded_dataframe(filename: str, file_bytes: bytes):
     if "text" not in df.columns:
         return None
     return df[["text"]]
+
+
+def render_gemini_section(gemini_model, text: str) -> None:
+    st.markdown("### Gemini 雙重檢查")
+
+    if genai is None:
+        st.info("尚未安裝 google-generativeai 套件，無法啟用 Gemini。")
+        return
+
+    if not get_genai_api_key():
+        st.info("請在 Streamlit secrets 或環境變數設定 GENAI_API_KEY。")
+        return
+
+    if gemini_model is None:
+        st.warning("Gemini 初始化失敗，請稍後再試。")
+        return
+
+    with st.spinner("Gemini 分析中..."):
+        try:
+            result = run_gemini_check(gemini_model, text)
+        except Exception as exc:
+            st.error(f"Gemini 呼叫失敗：{exc}")
+            return
+
+    cols = st.columns(2)
+    cols[0].metric("Gemini 判斷", result["label"])
+    cols[1].metric("AI 機率 (Gemini)", f"{result['ai_probability'] * 100:.1f} %")
+    st.write("Gemini 說明：", result["explanation"])
+
+
+def run_gemini_check(model, text: str) -> Dict[str, float | str]:
+    prompt = (
+        "You are an assistant that verifies whether text was written by AI systems or humans. "
+        "Return ONLY valid JSON with keys: label (\"AI-written\" or \"Human-written\"), "
+        "ai_probability (0-1 float), human_probability (0-1 float), explanation (short reasoning in Traditional Chinese)."
+    )
+    response = model.generate_content(
+        [
+            prompt,
+            f"請判斷以下文本：\n{text}",
+        ]
+    )
+    raw_text = (response.text or "").strip()
+    payload = _extract_json(raw_text)
+    label = payload.get("label", "Unknown")
+    ai_prob = float(payload.get("ai_probability", 0.5))
+    human_prob = float(payload.get("human_probability", 1 - ai_prob))
+    explanation = payload.get("explanation", raw_text)
+    return {
+        "label": label,
+        "ai_probability": max(0.0, min(1.0, ai_prob)),
+        "human_probability": max(0.0, min(1.0, human_prob)),
+        "explanation": explanation,
+    }
+
+
+def _extract_json(raw_text: str) -> Dict[str, object]:
+    candidate = raw_text.strip()
+    if candidate.startswith("```"):
+        candidate = candidate[3:]
+        candidate = candidate.strip()
+        if candidate.lower().startswith("json"):
+            candidate = candidate[4:].strip()
+        if candidate.endswith("```"):
+            candidate = candidate[:-3].strip()
+    try:
+        return json.loads(candidate)
+    except json.JSONDecodeError:
+        return {}
 
 
 if __name__ == "__main__":
