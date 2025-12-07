@@ -3,15 +3,12 @@ from __future__ import annotations
 import io
 import json
 import os
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 import pandas as pd
 import streamlit as st
 
-try:
-    import google.generativeai as genai
-except ImportError:  # pragma: no cover
-    genai = None
+import google.generativeai as genai
 
 try:  # Allow running as `streamlit run HW5/app.py` or `python -m HW5.app`.
     from .detector import HeuristicAIHumanDetector
@@ -23,6 +20,16 @@ except ImportError:  # pragma: no cover
 
 st.set_page_config(page_title="AI vs Human Detector", layout="wide")
 
+API_KEY = os.getenv("GENAI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+if API_KEY:
+    genai.configure(api_key=API_KEY)
+
+GEMINI_MODEL_NAME = "gemini-2.5-flash"
+try:
+    GEMINI_MODEL = genai.GenerativeModel(GEMINI_MODEL_NAME)
+except Exception:
+    GEMINI_MODEL = None
+
 
 # Caches -----------------------------------------------------------------------
 
@@ -32,38 +39,12 @@ def get_detector() -> HeuristicAIHumanDetector:
     return HeuristicAIHumanDetector()
 
 
-def get_genai_api_key() -> Optional[str]:
-    for key in ("GENAI_API_KEY", "GOOGLE_API_KEY"):
-        if key in st.secrets:
-            return st.secrets[key]
-        value = os.environ.get(key)
-        if value:
-            return value
-    return None
-
-
-GEMINI_MODEL_NAME = "gemini-2.5-flash"
-
-
-@st.cache_resource(show_spinner=False)
-def get_gemini_model():
-    api_key = get_genai_api_key()
-    if not api_key or genai is None:
-        return None
-    try:
-        genai.configure(api_key=api_key)
-        return genai.GenerativeModel(GEMINI_MODEL_NAME)
-    except Exception as exc:  # pragma: no cover - runtime warning
-        st.sidebar.warning(f"Gemini 初始化失敗：{exc}")
-        return None
-
-
 def main() -> None:
     st.title("AI vs Human 文章分類工具")
     st.caption("輸入文本或上傳批次檔案，使用輕量 stylometric 特徵估算 AI/Human 機率。")
 
     detector = get_detector()
-    gemini_model = get_gemini_model()
+    gemini_model = GEMINI_MODEL
     render_sidebar()
 
     single_result = render_single_detection(detector, gemini_model)
@@ -85,8 +66,8 @@ def render_sidebar() -> None:
 > 提醒：本偵測器為 heuristics 示範，不代表絕對真實。
 """
     )
-    if not get_genai_api_key():
-        st.sidebar.info("於 Streamlit secrets 設定 GENAI_API_KEY 可啟用 Gemini 雙重檢查。")
+    if not API_KEY:
+        st.sidebar.info("設定 GENAI_API_KEY 或 GOOGLE_API_KEY 可啟用 Gemini 雙重檢查。")
 
     st.sidebar.subheader("特徵說明")
     st.sidebar.write(
@@ -225,12 +206,8 @@ def parse_uploaded_dataframe(filename: str, file_bytes: bytes):
 def render_gemini_section(gemini_model, text: str) -> None:
     st.markdown("### Gemini 雙重檢查")
 
-    if genai is None:
-        st.info("尚未安裝 google-generativeai 套件，無法啟用 Gemini。")
-        return
-
-    if not get_genai_api_key():
-        st.info("請在 Streamlit secrets 或環境變數設定 GENAI_API_KEY。")
+    if not API_KEY:
+        st.info("請設定 GENAI_API_KEY 或 GOOGLE_API_KEY 後重新整理頁面。")
         return
 
     if gemini_model is None:
