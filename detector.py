@@ -90,15 +90,16 @@ class HeuristicAIHumanDetector:
     def __init__(self) -> None:
         # Weight signs indicate how much a feature pushes toward "AI".
         self.weights = {
-            "complexity": 1.2,
-            "burstiness": -1.4,
-            "repetition": 1.1,
-            "diversity": -1.3,
-            "stopword_ratio": 0.8,
-            "punctuation_density": -0.4,
-            "entropy": -0.7,
+            "complexity": 1.4,
+            "burstiness": -0.9,
+            "repetition": 1.25,
+            "diversity": -0.9,
+            "stopword_ratio": 1.0,
+            "punctuation_density": -0.2,
+            "entropy": -0.5,
         }
-        self.bias = 0.15
+        self.bias = 0.35
+        self.decision_threshold = 0.45
 
     def predict(self, text: str) -> DetectionResult:
         tokens = WORD_RE.findall(text.lower())
@@ -111,7 +112,7 @@ class HeuristicAIHumanDetector:
                 score += self.weights[name] * value
         ai_score = self._sigmoid(score)
         human_score = 1 - ai_score
-        label = "AI-written" if ai_score >= 0.5 else "Human-written"
+        label = "AI-written" if ai_score >= self.decision_threshold else "Human-written"
         return DetectionResult(label=label, ai_score=ai_score, human_score=human_score, features=features)
 
     def batch_predict(self, texts: Sequence[str]) -> List[DetectionResult]:
@@ -219,4 +220,3 @@ def detect_text(text: str) -> DetectionResult:
 def detect_batch(texts: Sequence[str]) -> List[DetectionResult]:
     detector = HeuristicAIHumanDetector()
     return detector.batch_predict(texts)
-
